@@ -202,8 +202,8 @@ const DEFAULT_SETTINGS = {
   debt: 0, debtAsOf: "", debtStart: 0, rate: 0.0645, limit: 0, maturity: "",
   incomes: [{ id: "alba", name: "알바", amount: 0, day: 13 }, { id: "allow", name: "용돈", amount: 0, day: 30 }, { id: "aid", name: "월세 지원금", amount: 0, day: 25 }],
   raise: { amount: 0, from: "" },
-  fixed: [{ name: "월세·관리비", amount: 0, day: 30 }, { name: "교통", amount: 0 }, { name: "가스·전기", amount: 0 }, { name: "통신", amount: 0 }, { name: "AI 구독", amount: 0 }, { name: "여행저축", amount: 0, day: 15, until: "" }],
-  cats: [{ id: "food", name: "식비", limit: 0 }, { id: "shop", name: "쇼핑", limit: 0 }, { id: "date", name: "데이트", limit: 0 }, { id: "cafe", name: "카페", limit: 0 }, { id: "hair", name: "헤어컷", limit: 0, lump: true }, { id: "sub", name: "구독", limit: 0, lump: true }],
+  fixed: [{ name: "월세·관리비", amount: 0, day: 30 }, { name: "교통", amount: 0 }, { name: "가스·전기", amount: 0 }, { name: "통신", amount: 0 }, { name: "AI 구독", amount: 0 }, { name: "데이트 모임통장", amount: 0 }, { name: "여행저축", amount: 0, day: 15, until: "" }],
+  cats: [{ id: "food", name: "식비", limit: 0 }, { id: "shop", name: "쇼핑", limit: 0 }, { id: "cafe", name: "카페", limit: 0 }, { id: "hair", name: "헤어컷", limit: 0, lump: true }, { id: "sub", name: "구독", limit: 0, lump: true }],
   emergency: 0,
 };
 const sum = (a, f) => a.reduce((s, x) => s + (f ? f(x) : x), 0);
@@ -217,7 +217,9 @@ function daysIn(key) { const [y, m] = key.split("-").map(Number); return new Dat
 // Income items (type "in") are one-off money beyond the regular incomes in settings.
 // toBudget: added to this month's spending money; otherwise it goes to paying down the overdraft.
 function monthStats(S, all, key, today) {
-  const items = all.filter(i => i.type !== "in"), ins = all.filter(i => i.type === "in");
+  // Spending in a category that is no longer in the budget (e.g. dating moved to a fixed transfer) is kept as a record only.
+  const known = new Set(S.cats.map(c => c.id)), outs = all.filter(i => i.type !== "in");
+  const items = outs.filter(i => known.has(i.cat)), ins = all.filter(i => i.type === "in");
   const incomeTotal = sum(ins, i => i.amount), extraBudget = sum(ins.filter(i => i.toBudget), i => i.amount);
   const dim = daysIn(key), cur = today.slice(0, 7);
   const day = key === cur ? +today.slice(8) : key < cur ? dim : 0;
@@ -228,10 +230,9 @@ function monthStats(S, all, key, today) {
     const status = c.lump ? (spent > 0 && spent >= c.limit ? "paid" : "due") : spent > c.limit ? "over" : ratio > elapsed ? "fast" : "ok";
     return { ...c, spent, left, ratio, status, perDay: daysLeft ? Math.max(0, left) / daysLeft : 0 };
   });
-  const known = new Set(S.cats.map(c => c.id));
-  const other = sum(items.filter(i => !known.has(i.cat)), i => i.amount);
+  const other = sum(outs.filter(i => !known.has(i.cat)), i => i.amount);
   const limitTotal = sum(cats, c => c.limit), spentTotal = sum(items, i => i.amount);
-  const flexLeft = sum(cats.filter(c => !c.lump), c => c.left) - other + extraBudget;
+  const flexLeft = sum(cats.filter(c => !c.lump), c => c.left) + extraBudget;
   const budgetTotal = limitTotal + extraBudget;
   return { key, dim, day, elapsed, daysLeft, cats, other, limitTotal, budgetTotal, spentTotal, incomeTotal, extraBudget,
     left: budgetTotal - spentTotal, today: daysLeft ? Math.max(0, flexLeft) / daysLeft : 0, flexLeft };
@@ -244,7 +245,7 @@ function monthStats(S, all, key, today) {
 function simulate(S, months, raise) {
   if (!S.debtAsOf || !S.debt) return { rows: [], totalInt: 0, payoff: S.debt ? null : S.debtAsOf.slice(0, 7), atMaturity: 0 };
   const k0 = S.debtAsOf.slice(0, 7), d0 = +S.debtAsOf.slice(8), r = S.rate / 12;
-  const limitTotal = sum(S.cats, c => c.limit);
+  const limitTotal = sum(S.cats, c => c.limit), known = new Set(S.cats.map(c => c.id));
   let bal = S.debt, totalInt = 0;
   const rows = [];
   for (let i = 0; i < 60 && bal > 0.5; i++) {
@@ -252,7 +253,7 @@ function simulate(S, months, raise) {
     let inc = sum(S.incomes.filter(pend), x => x.amount);
     if (raise && S.raise.from && k >= S.raise.from && pend({ day: 13 })) inc += raise;
     const fixed = sum(S.fixed.filter(f => pend(f) && (!f.until || k <= f.until)), f => f.amount);
-    const all = months[k] || [], items = all.filter(x => x.type !== "in"), ins = all.filter(x => x.type === "in");
+    const all = months[k] || [], items = all.filter(x => x.type !== "in" && known.has(x.cat)), ins = all.filter(x => x.type === "in");
     inc += sum(ins.filter(x => i > 0 || x.date > S.debtAsOf), x => x.amount); // earlier ones are already in the balance
     let v = Math.max(limitTotal + sum(ins.filter(x => x.toBudget), x => x.amount), sum(items, x => x.amount));
     if (i === 0) v -= sum(items.filter(x => x.date <= S.debtAsOf), x => x.amount);
@@ -289,7 +290,7 @@ const themeBtn = () => `<button class="iconbtn" id="themeBtn" aria-label="${isDa
 
 // ---------- state ----------
 const CAT_COLOR = { food: "var(--c-food)", shop: "var(--c-shop)", date: "var(--c-date)", cafe: "var(--c-cafe)", hair: "var(--c-hair)", sub: "var(--c-sub)" };
-const KEYWORDS = [["cafe", /커피|카페|스타벅스|메가|빽다방|컴포즈|이디야|투썸/], ["date", /데이트|쏘카|영화|선물|꽃/], ["hair", /미용|헤어|커트|컷/], ["sub", /구독|스포티파이|넷플릭스|유튜브/], ["shop", /쿠팡|무신사|올리브영|다이소|쇼핑/], ["food", /편의점|치킨|밥|식당|마트|배달|도시락|물/]];
+const KEYWORDS = [["cafe", /커피|카페|스타벅스|메가|빽다방|컴포즈|이디야|투썸/], ["hair", /미용|헤어|커트|컷/], ["sub", /구독|스포티파이|넷플릭스|유튜브/], ["shop", /쿠팡|무신사|올리브영|다이소|쇼핑/], ["food", /편의점|치킨|밥|식당|마트|배달|도시락|물/]];
 const st = { settings: structuredClone(DEFAULT_SETTINGS), months: {}, hasSettings: false, loading: true, offline: false, error: "", tab: "home", logMonth: null, planRaise: null, planView: "A", db: null };
 let sheet = null, toastTimer = null;
 const $ = s => document.querySelector(s);
@@ -301,7 +302,8 @@ const ymLabel = k => { const [y, m] = k.split("-"); return `${y}년 ${+m}월`; }
 const catOf = id => st.settings.cats.find(c => c.id === id);
 const INCOME_CATS = [{ id: "in_allow", name: "용돈" }, { id: "in_alba", name: "알바" }, { id: "in_etc", name: "기타 수입" }];
 const catColor = id => CAT_COLOR[id] || (id?.startsWith("in_") ? "var(--blue-strong)" : "var(--c-etc)");
-const catName = id => catOf(id)?.name || INCOME_CATS.find(c => c.id === id)?.name || "기타";
+const OLD_CATS = { date: "데이트" }; // categories removed from the budget; old records keep their name
+const catName = id => catOf(id)?.name || INCOME_CATS.find(c => c.id === id)?.name || OLD_CATS[id] || "기타";
 const allItems = () => Object.values(st.months).flat();
 
 // ---------- storage (db capability, owner-only) ----------
@@ -351,7 +353,6 @@ function ringSvg(ms) {
   const R = 60, C = 2 * Math.PI * R, total = Math.max(ms.budgetTotal, ms.spentTotal) || 1;
   let off = 0, arcs = "";
   const parts = ms.cats.filter(c => c.spent > 0).map(c => [c.id, c.spent]);
-  if (ms.other > 0) parts.push(["etc", ms.other]);
   for (const [id, v] of parts) {
     const len = (v / total) * C;
     arcs += `<circle cx="74" cy="74" r="${R}" fill="none" stroke="${catColor(id)}" stroke-width="16" stroke-dasharray="${Math.max(0, len - 2)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 74 74)"/>`;
@@ -397,7 +398,7 @@ function homeView() {
   const ms = monthStats(S, st.months[key] || [], key, today);
   const totalStatus = ms.flexLeft < 0 ? "over" : ms.cats.some(c => c.status === "over") ? "over" : (ms.spentTotal / (ms.budgetTotal || 1)) > ms.elapsed ? "fast" : "ok";
   const simA = simulate(S, st.months, 0), simB = simulate(S, st.months, S.raise.amount);
-  const legend = ms.cats.filter(c => c.spent > 0).map(c => `<div class="li"><span class="dot" style="background:${catColor(c.id)}"></span><span>${esc(c.name)}</span><span class="num">${won(c.spent)}</span></div>`).join("") || `<div class="muted">아직 쓴 돈이 없어요</div>`;
+  const legend = ms.cats.filter(c => c.spent > 0).map(c => `<div class="li"><span class="dot" style="background:${catColor(c.id)}"></span><span>${esc(c.name)}</span><span class="num">${won(c.spent)}</span></div>`).join("") + (ms.other ? `<div class="li"><span class="dot" style="background:var(--c-etc)"></span><span>예산 밖 기록</span><span class="num">${won(ms.other)}</span></div>` : "") || `<div class="muted">아직 쓴 돈이 없어요</div>`;
   const catRows = ms.cats.map(c => {
     const pct = Math.min(1, c.limit ? c.spent / c.limit : 0);
     const color = c.lump ? (c.status === "paid" ? "var(--green)" : "var(--fg4)") : c.status === "over" ? "var(--red)" : c.status === "fast" ? "var(--orange)" : catColor(c.id);
