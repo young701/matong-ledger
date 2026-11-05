@@ -310,7 +310,7 @@ const allItems = () => Object.values(st.months).flat();
 const writeChains = {};
 function save(docId, body) {
   if (!st.db) { // no Claude storage here: keep everything on this device
-    if (!lsSet(LS_KEY, JSON.stringify({ settings: st.settings, months: st.months }))) showToast("이 기기에 저장하지 못했어요. 백업을 복사해 두세요");
+    if (!lsSet(LS_KEY, JSON.stringify({ settings: st.hasSettings ? st.settings : null, months: st.months }))) showToast("이 기기에 저장하지 못했어요. 백업을 복사해 두세요");
     return Promise.resolve();
   }
   const run = () => st.db.doc("ledger/" + docId).set(body).catch(e => { showToast(e.code === "quota_exceeded" ? "저장 공간이 가득 찼어요" : "저장하지 못했어요. 다시 시도해 주세요"); });
@@ -420,7 +420,7 @@ function homeView() {
         <div class="tile"><span class="muted"><span class="dot" style="display:inline-block;background:var(--green)"></span> 알바 +${manwon(S.raise.amount)}원</span><b class="num">${payText(simB)}</b><span class="muted">에 다 갚아요</span></div></div>
     </section>` : "";
   return `
-    <header class="top"><div><h1>${+key.slice(5)}월 가계부</h1><span class="sub">${ms.daysLeft}일 남았어요</span></div>${themeBtn()}</header>
+    <header class="top"><div><h1>${+key.slice(5)}월 가계부</h1><span class="sub">${ms.daysLeft}일 남았어요 · ${st.offline ? "이 폰에 저장 중" : st.db ? "Claude에 저장 중" : "불러오는 중"}</span></div>${themeBtn()}</header>
     ${statusNotices()}
     <section class="card hero">
       <div class="spread"><div class="label">오늘 쓸 수 있는 돈</div>${badge(totalStatus)}</div>
@@ -437,7 +437,7 @@ function homeView() {
 function statusNotices() {
   if (st.loading) return `<div class="notice">기록을 불러오고 있어요</div>`;
   if (st.error) return `<div class="notice">${esc(st.error)}</div>`;
-  if (!st.hasSettings) return `<div class="notice">${st.offline ? "기록은 이 기기에 저장돼요. 설정 탭의 백업 붙여넣기로 기존 기록을 옮겨 오거나, " : "설정 탭에서 "}수입과 카테고리 한도를 먼저 입력해 주세요.</div>`;
+  if (!st.hasSettings) return `<div class="notice">${st.offline ? "기록은 이 기기에 저장돼요. 설정 탭의 백업 붙여넣기로 기존 기록을 옮겨 오거나, " : "설정 탭에서 "}수입과 카테고리 한도를 먼저 입력해 주세요.${st.offline ? `<button class="btn ghost" id="imp" style="margin-top:10px">백업 붙여넣기</button>` : ""}</div>`;
   return "";
 }
 
