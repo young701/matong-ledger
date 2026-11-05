@@ -266,6 +266,24 @@ function simulate(S, months, raise) {
   const mrow = rows.find(x => x.k === mk);
   return { rows, totalInt, payoff: last && last.bal <= 0.5 ? last.k : null, atMaturity: mrow ? mrow.bal : 0 };
 }
+
+// Best guess of today's overdraft balance: the last balance read from the bank, plus spending and minus income
+// recorded since, plus fixed costs / regular income whose pay day has passed. Fixed costs with no known day are
+// left out until the next bank balance is entered.
+function estimateBalance(S, months, today) {
+  const r = { bal: S.debt, spent: 0, got: 0, fixed: 0, regular: 0 };
+  if (!S.debtAsOf || today <= S.debtAsOf) return r;
+  const k0 = S.debtAsOf.slice(0, 7), kT = today.slice(0, 7);
+  for (let k = k0; k <= kT; k = addMonths(k, 1)) {
+    for (const x of months[k] || []) if (x.date > S.debtAsOf && x.date <= today) { if (x.type === "in") r.got += x.amount; else r.spent += x.amount; }
+    const from = k === k0 ? +S.debtAsOf.slice(8) + 1 : 1, to = k === kT ? +today.slice(8) : daysIn(k);
+    const due = d => d >= from && d <= to;
+    r.regular += sum(S.incomes.filter(x => due(x.day)), x => x.amount);
+    r.fixed += sum(S.fixed.filter(f => due(f.day) && (!f.until || k <= f.until)), f => f.amount);
+  }
+  r.bal = S.debt + r.spent - r.got + r.fixed - r.regular;
+  return r;
+}
 </script>
 
 <script>
@@ -397,6 +415,7 @@ function homeView() {
   const today = todayIso(), key = today.slice(0, 7), S = st.settings;
   const ms = monthStats(S, st.months[key] || [], key, today);
   const totalStatus = ms.flexLeft < 0 ? "over" : ms.cats.some(c => c.status === "over") ? "over" : (ms.spentTotal / (ms.budgetTotal || 1)) > ms.elapsed ? "fast" : "ok";
+  const est = estimateBalance(S, st.months, today);
   const simA = simulate(S, st.months, 0), simB = simulate(S, st.months, S.raise.amount);
   const legend = ms.cats.filter(c => c.spent > 0).map(c => `<div class="li"><span class="dot" style="background:${catColor(c.id)}"></span><span>${esc(c.name)}</span><span class="num">${won(c.spent)}</span></div>`).join("") + (ms.other ? `<div class="li"><span class="dot" style="background:var(--c-etc)"></span><span>예산 밖 기록</span><span class="num">${won(ms.other)}</span></div>` : "") || `<div class="muted">아직 쓴 돈이 없어요</div>`;
   const catRows = ms.cats.map(c => {
@@ -413,8 +432,15 @@ function homeView() {
   }).join("");
   const payText = sim => sim.payoff ? ymLabel(sim.payoff) : "계산할 수 없어요";
   const debtCard = S.debt ? `<section class="card">
-      <div class="spread"><div class="label">마이너스 통장</div><span class="muted">${esc(S.debtAsOf.slice(5).replace("-", "/"))} 기준</span></div>
-      <div><div class="big num">${won(S.debt)}</div><div class="muted num" style="margin-top:4px">한도 ${won(S.limit)} · 여유 ${won(S.limit - S.debt)}</div></div>
+      <div class="spread"><div class="label">마이너스 통장 잔액 (지금 예상)</div></div>
+      <div><div class="big num">${won(est.bal)}</div><div class="muted num" style="margin-top:4px">한도 ${won(S.limit)} · 여유 <span style="${S.limit - est.bal < 100000 ? "color:var(--red);font-weight:700" : ""}">${won(S.limit - est.bal)}</span></div></div>
+      <div class="tile num" style="gap:6px;font-size:14px">
+        <div class="spread"><span class="muted">${esc(S.debtAsOf.slice(5).replace("-", "/"))} 은행 잔액</span><span>${won(S.debt)}</span></div>
+        <div class="spread"><span class="muted">그 뒤 쓴 돈</span><span>+${won(est.spent)}</span></div>
+        ${est.fixed ? `<div class="spread"><span class="muted">빠져나간 고정비</span><span>+${won(est.fixed)}</span></div>` : ""}
+        <div class="spread"><span class="muted">들어온 돈</span><span style="color:var(--blue)">-${won(est.got + est.regular)}</span></div>
+      </div>
+      <div class="muted">은행 앱 잔액과 다르면 설정 → 지금 잔액에 그대로 넣어 주세요. 결제일을 모르는 고정비는 그때 맞춰져요.</div>
       ${lineSvg([{ pts: balPts(simA), color: "var(--blue)", fill: true }, { pts: balPts(simB), color: "var(--green)" }], S.limit)}
       <div class="duo"><div class="tile"><span class="muted"><span class="dot" style="display:inline-block;background:var(--blue)"></span> 지금 그대로</span><b class="num">${payText(simA)}</b><span class="muted">에 다 갚아요</span></div>
         <div class="tile"><span class="muted"><span class="dot" style="display:inline-block;background:var(--green)"></span> 알바 +${manwon(S.raise.amount)}원</span><b class="num">${payText(simB)}</b><span class="muted">에 다 갚아요</span></div></div>
