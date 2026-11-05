@@ -182,6 +182,29 @@ body::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-event
 .iconbtn { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--fg2); flex: none; }
 .iconbtn svg { width: 20px; height: 20px; }
 .seg.three { grid-template-columns: repeat(3, 1fr); }
+
+/* Save button stays reachable even when a sheet scrolls */
+.sheet > :last-child { position: sticky; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+/* Short screens (iPhone SE: 375×667): tighter sheet, smaller ring, one row of recent items */
+@media (max-height: 740px) {
+  .app { gap: 10px; }
+  .card { padding: 18px 16px; gap: 12px; }
+  .big { font-size: 28px; }
+  .ringwrap { grid-template-columns: 116px 1fr; gap: 14px; }
+  .ring { width: 116px; height: 116px; }
+  .sheet { gap: 10px; padding-top: 6px; }
+  .sheet h2 { font-size: 17px; }
+  .amount { font-size: 28px; min-height: 36px; }
+  .seg button { padding: 7px; }
+  .chip { padding: 7px 12px; font-size: 13px; }
+  .chip.recent:nth-child(n+3), .dest-q { display: none; }
+  .field { padding: 11px 14px; font-size: 15px; }
+  .pad { gap: 2px; }
+  .pad button { height: 44px; font-size: 22px; }
+  .btn { padding: 14px; font-size: 16px; }
+  .tabs button { padding: 4px 0; }
+  .fab { height: 48px; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+}
 </style>
 
 <div class="app" id="app" aria-live="polite"></div>
@@ -417,7 +440,7 @@ function homeView() {
   const totalStatus = ms.flexLeft < 0 ? "over" : ms.cats.some(c => c.status === "over") ? "over" : (ms.spentTotal / (ms.budgetTotal || 1)) > ms.elapsed ? "fast" : "ok";
   const est = estimateBalance(S, st.months, today);
   const simA = simulate(S, st.months, 0), simB = simulate(S, st.months, S.raise.amount);
-  const legend = ms.cats.filter(c => c.spent > 0).map(c => `<div class="li"><span class="dot" style="background:${catColor(c.id)}"></span><span>${esc(c.name)}</span><span class="num">${won(c.spent)}</span></div>`).join("") + (ms.other ? `<div class="li"><span class="dot" style="background:var(--c-etc)"></span><span>예산 밖 기록</span><span class="num">${won(ms.other)}</span></div>` : "") || `<div class="muted">아직 쓴 돈이 없어요</div>`;
+  const legend = ms.cats.filter(c => c.spent > 0).map(c => `<div class="li"><span class="dot" style="background:${catColor(c.id)}"></span><span>${esc(c.name)}</span><span class="num">${won(c.spent)}</span></div>`).join("") + (ms.other ? `<div class="li"><span class="dot" style="background:var(--c-etc)"></span><span>예산 밖</span><span class="num">${won(ms.other)}</span></div>` : "") || `<div class="muted">아직 쓴 돈이 없어요</div>`;
   const catRows = ms.cats.map(c => {
     const pct = Math.min(1, c.limit ? c.spent / c.limit : 0);
     const color = c.lump ? (c.status === "paid" ? "var(--green)" : "var(--fg4)") : c.status === "over" ? "var(--red)" : c.status === "fast" ? "var(--orange)" : catColor(c.id);
@@ -584,9 +607,9 @@ function openEntry(existing) {
     <div class="amount num" id="amt"></div>
     <div class="chips" id="recents"></div>
     <div class="chips" id="catchips"></div>
-    <div id="dest" hidden style="display:grid;gap:8px"><div class="muted">이 돈은 어디에 쓸까요?</div>
+    <div id="dest" hidden style="display:grid;gap:8px"><div class="muted dest-q">이 돈은 어디에 쓸까요?</div>
       <div class="seg" role="group" aria-label="쓰임"><button data-dest="debt">빚 갚기</button><button data-dest="budget">이번 달 생활비</button></div>
-      <div class="muted">설정에 있는 정기 수입(알바비·용돈·월세 지원금)은 기록하지 않아도 돼요. 예상 밖으로 들어온 돈만 기록해 주세요.</div></div>
+      <div class="muted">정기 수입(알바비·용돈·지원금)은 기록하지 않아도 돼요.</div></div>
     <div class="fieldrow"><input class="field" id="memo" value="${esc(sheet.memo)}" autocomplete="off" enterkeyhint="done"><input class="field" id="date" type="date" value="${sheet.date}" aria-label="날짜"></div>
     ${PAD}
     <div class="btns" style="${existing ? "" : "grid-template-columns:1fr"}">${existing ? `<button class="btn danger" id="del">삭제</button>` : ""}<button class="btn" id="ok"></button></div>`,
